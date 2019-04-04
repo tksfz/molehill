@@ -10,12 +10,10 @@ import cats.free.Free
 import org.tksfz.molehill.algebra.{EC2Alg, EC2Exports, EC2Spec}
 import org.tksfz.molehill.aws.ec2.EC2Kleisli
 import org.tksfz.molehill.data.{External, ExternalDerived, Whence}
-import org.tksfz.molehill.plan.Plan.PlanIO
 import software.amazon.awssdk.services.ec2.Ec2AsyncClient
 import software.amazon.awssdk.services.ec2.model.{AttributeValue, ModifyInstanceAttributeRequest, RunInstancesRequest, RunInstancesResponse}
 
 class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Whence] {
-  import Plan.asyncFreePlan
 
   override def ec2(key: String, spec: EC2Spec[Whence]): PlanIO[EC2Exports[Whence]] = {
     val preSpec: Option[(EC2Spec[Id], EC2Exports[Id])] = preStore.get(key).map(_.asInstanceOf[(EC2Spec[Id], EC2Exports[Id]))

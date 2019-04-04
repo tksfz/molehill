@@ -2,7 +2,7 @@ package org.tksfz.molehill.data
 
 import cats.Monad
 import cats.effect.concurrent.Deferred
-import org.tksfz.molehill.plan.Plan.PlanIO
+import org.tksfz.molehill.plan.PlanIO
 
 // PlannedSource?
 sealed trait Whence[A] {
