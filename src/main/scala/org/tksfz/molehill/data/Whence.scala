@@ -4,6 +4,7 @@ import cats.Monad
 import cats.effect.concurrent.Deferred
 import org.tksfz.molehill.plan.Plan.FreePlan
 
+// PlannedSource?
 sealed trait Whence[A] {
   def map[B](f: A => B): Whence[B] = this match {
     case Local(a) => Local(f(a))
@@ -13,7 +14,11 @@ sealed trait Whence[A] {
 
   def flatMap[B](f: A => Whence[B]): Whence[B]
 
-  def lift: FreePlan[A] = ???
+  def toFreePlan: FreePlan[A] = this match {
+    case Local(a) => FreePlan.pure(a)
+    case External(deferred) => deferred.get
+    case ExternalDerived(derived) => derived
+  }
 }
 
 case class Local[A](a: A) extends Whence[A] {
@@ -21,23 +26,21 @@ case class Local[A](a: A) extends Whence[A] {
     f(a)
   }
 }
-case class External[F[_] : Monad, A](deferred: Deferred[F, A]) extends Whence[A] {
+case class External[A](deferred: Deferred[FreePlan, A]) extends Whence[A] {
   def flatMap[B](f: A => Whence[B]): Whence[B] = {
-    ExternalDerived(deferred.get.flatMap { _ match {
-      case Local(a) => Monad[F].pure(a)
-      case External(b) => b.get
-      case ExternalDerived(b) => b
-    }
-  })
+    ExternalDerived(deferred.get.flatMap {
+      case Local(a) => Monad[FreePlan].pure(a)
+      case External(b: Deferred[FreePlan, B]) => b.get
+      case ExternalDerived(b: FreePlan[B]) => b
+    })
   }
 }
-case class ExternalDerived[F[_] : Monad, A](derived: F[A]) extends Whence[A] {
+case class ExternalDerived[A](derived: FreePlan[A]) extends Whence[A] {
   def flatMap[B](f: A => Whence[B]): Whence[B] = {
-    ExternalDerived(derived.flatMap { _ match {
-      case Local(a) => Monad[F].pure(a)
-      case External(b) => b.get
-      case ExternalDerived(b) => b
-    }
+    ExternalDerived(derived.flatMap {
+      case Local(a) => Monad[FreePlan].pure(a)
+      case External(b: Deferred[FreePlan, B]) => b.get
+      case ExternalDerived(b: FreePlan[B]) => b
     })
   }
 }

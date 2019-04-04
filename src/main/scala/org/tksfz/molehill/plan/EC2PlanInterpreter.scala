@@ -12,13 +12,13 @@ import org.tksfz.molehill.aws.ec2.EC2Kleisli
 import org.tksfz.molehill.data.{External, ExternalDerived, Whence}
 import org.tksfz.molehill.plan.Plan.FreePlan
 import software.amazon.awssdk.services.ec2.Ec2AsyncClient
-import software.amazon.awssdk.services.ec2.model.{RunInstancesRequest, RunInstancesResponse}
+import software.amazon.awssdk.services.ec2.model.{AttributeValue, ModifyInstanceAttributeRequest, RunInstancesRequest, RunInstancesResponse}
 
 class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[FreePlan, Whence] {
   import Plan.asyncFreePlan
 
   override def ec2(key: String, spec: EC2Spec[Whence]): FreePlan[EC2Exports[Whence]] = {
-    val preSpec: Option[EC2Spec[Id]] = preStore.get(key).map(_.asInstanceOf[EC2Spec[Id]])
+    val preSpec: Option[(EC2Spec[Id], EC2Exports[Id])] = preStore.get(key).map(_.asInstanceOf[(EC2Spec[Id], EC2Exports[Id]))
     preSpec.fold {
       for {
         instanceId <- Deferred.uncancelable[FreePlan, String]
@@ -26,8 +26,8 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[FreePlan, Wh
         exports = EC2Exports(External(instanceId), spec.instanceType, spec.amiId)
         x <- Free.liftF(CreateAnew(spec, exports, EC2Kleisli { ec2 =>
           for {
-            amiId <- spec.amiId.lift
-            instanceType <- spec.instanceType.lift
+            amiId <- spec.amiId.toFreePlan
+            instanceType <- spec.instanceType.toFreePlan
             request = RunInstancesRequest.builder().instanceType(instanceType).imageId(amiId).build()
             response <- Async[FreePlan].async[RunInstancesResponse] { cb =>
               ec2.runInstances(request).whenComplete(new BiConsumer[RunInstancesResponse, Throwable] {
@@ -45,7 +45,25 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[FreePlan, Wh
       } yield {
         x
       }
-    } { ???
+    } { case (preSpec, preExports) =>
+      val lifted: EC2Exports[Whence] = ???
+      if (isInconsistent(_.instanceType)) {
+        Modify(preSpec, spec, EC2Exports(lifted.instanceId, spec.instanceType, lifted.amiId),
+          EC2Kleisli { ec2 =>
+            for {
+              instanceType <- spec.instanceType.toFreePlan
+            } yield {
+              ec2.modifyInstanceAttribute(
+                ModifyInstanceAttributeRequest.builder()
+                  .instanceId(preExports.instanceId)
+                  .instanceType(AttributeValue.builder().value(instanceType).build())
+                  .build())
+              EC2Exports[Id](preExports.instanceId, instanceType, preExports.amiId)
+            }
+          })
+      }
     }
   }
+
+  private def isInconsistent[R[_[_]], B](f: R => B): Boolean = ???
 }
