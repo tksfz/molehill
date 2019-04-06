@@ -4,7 +4,7 @@ import cats.Monad
 import cats.effect.concurrent.Deferred
 import org.tksfz.molehill.plan.PlanIO
 
-// PlannedSource?
+// PlannedSource? Predicted?
 sealed trait Whence[A] {
   def map[B](f: A => B): Whence[B] = this match {
     case Local(a) => Local(f(a))
@@ -26,6 +26,11 @@ case class Local[A](a: A) extends Whence[A] {
     f(a)
   }
 }
+
+/**
+  * Indicates that this value comes from the Provider and is predicted to *change* from its previous state.
+  * Hence, if an External value appears in a Spec, then it is assumed to be inconsistent.
+  */
 case class External[A](deferred: Deferred[PlanIO, A]) extends Whence[A] {
   def flatMap[B](f: A => Whence[B]): Whence[B] = {
     ExternalDerived(deferred.get.flatMap {
