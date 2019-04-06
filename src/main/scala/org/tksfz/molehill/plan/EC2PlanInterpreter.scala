@@ -10,14 +10,14 @@ import cats.free.Free
 import org.tksfz.molehill.algebra.{EC2Alg, EC2Exports, EC2Spec}
 import org.tksfz.molehill.aws.ec2
 import org.tksfz.molehill.aws.ec2.EC2Kleisli
-import org.tksfz.molehill.data.{Bifocals, External, ExternalDerived, Whence}
+import org.tksfz.molehill.data.{Bifocals, External, ExternalDerived, Predicted}
 import shapeless._
 import software.amazon.awssdk.services.ec2.Ec2AsyncClient
 import software.amazon.awssdk.services.ec2.model.{AttributeValue, ModifyInstanceAttributeRequest, RunInstancesRequest, RunInstancesResponse}
 
-class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Whence] {
+class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Predicted] {
 
-  override def ec2(key: String, targetSpec: EC2Spec[Whence]): PlanIO[EC2Exports[Whence]] = {
+  override def ec2(key: String, targetSpec: EC2Spec[Predicted]): PlanIO[EC2Exports[Predicted]] = {
     val pre: Option[(EC2Spec[Id], EC2Exports[Id])] = preStore.get(key).map(_.asInstanceOf[(EC2Spec[Id], EC2Exports[Id])])
     pre.fold {
       for {
@@ -63,7 +63,7 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, When
     }
   }
 
-  case class Context[Spec[_[_]], Exports[_[_]]](preSpec: Spec[Id], preExports: Exports[Id], targetSpec: Spec[Whence])
+  case class Context[Spec[_[_]], Exports[_[_]]](preSpec: Spec[Id], preExports: Exports[Id], targetSpec: Spec[Predicted])
 
   /** Helper function to apply the common pattern of detecting whether a particular attribute in the
     * specification is inconsistent and, if so, runs a particular operation to make it consistent.
@@ -75,11 +75,11 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, When
     *
     * @param bifocals a pair of lenses over Spec and Exports that selects an attribute they hold in common
     */
-  private def syncModify[Spec[_[_]], Exports[_[_]], A](bifocals: Bifocals[Spec[Whence], Exports[Whence], A])
+  private def syncModify[Spec[_[_]], Exports[_[_]], A](bifocals: Bifocals[Spec[Predicted], Exports[Predicted], A])
                                                       (mkConsistent: Ec2AsyncClient => PlanIO[Exports[Id]])
-                                                      (implicit context: Context[Spec, Exports]): PlanIO[Exports[Whence]] = {
-    val preSpecWhence: Spec[Whence] = ???
-    val preExportsWhence: Exports[Whence] = ???
+                                                      (implicit context: Context[Spec, Exports]): PlanIO[Exports[Predicted]] = {
+    val preSpecWhence: Spec[Predicted] = ???
+    val preExportsWhence: Exports[Predicted] = ???
     if (isInconsistent(bifocals.lens1.get)) {
       val predictedExports = bifocals.lens2.set(preExportsWhence)(a)
       Free.liftF(Modify(context.preSpec, context.targetSpec, predictedExports, EC2Kliesli(mkConsistent)))
@@ -106,9 +106,9 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, When
     */
   def field[Spec[_[_]], Exports[_[_]], A](k: Witness)
                                          (implicit context: Context[Spec, Exports],
-                                          mkLens1: MkFieldLens.Aux[Spec[Whence], k.T, A],
-                                          mkLens2: MkFieldLens.Aux[Exports[Whence], k.T, A]): Bifocals[Spec[Whence], Exports[Whence], A] = {
-    Bifocals[Spec[Whence], Exports[Whence], A](k)
+                                          mkLens1: MkFieldLens.Aux[Spec[Predicted], k.T, A],
+                                          mkLens2: MkFieldLens.Aux[Exports[Predicted], k.T, A]): Bifocals[Spec[Predicted], Exports[Predicted], A] = {
+    Bifocals[Spec[Predicted], Exports[Predicted], A](k)
   }
 
 }
