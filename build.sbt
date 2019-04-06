@@ -8,3 +8,11 @@ libraryDependencies ++= Seq(
   "org.typelevel" %% "cats-free" % "1.6.0",
   "io.monix" %% "monix-reactive" % "3.0.0-RC2",
 )
+
+resolvers ++= Seq(
+  Resolver.sonatypeRepo("releases"),
+  Resolver.sonatypeRepo("snapshots")
+)
+libraryDependencies ++= Seq(
+  "com.chuusai" %% "shapeless" % "2.3.3"
+)
