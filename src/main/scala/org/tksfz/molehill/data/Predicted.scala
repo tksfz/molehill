@@ -4,6 +4,7 @@ import cats.{Id, Monad}
 import cats.effect.Async
 import cats.effect.concurrent.Deferred
 import cats.sequence.RecordSequencer
+import org.tksfz.molehill.data.Predicted.toPlanIO
 import org.tksfz.molehill.plan.PlanIO
 import shapeless.ops.hlist.Align
 import shapeless.{HList, LabelledGeneric, Poly1, ops, record}
@@ -52,6 +53,27 @@ case class ExternalDerived[A](derived: PlanIO[A]) extends Predicted[A] {
   }
 }
 
+/** Helper type class that bundles all the constraints needed for sequencing
+  */
+trait SequencePredicted[T[_[_]]] {
+  def apply(t: T[Predicted]): PlanIO[T[Id]]
+}
+
+object SequencePredicted {
+  implicit def sequence[T[_[_]], L <: HList, M <: HList, N <: HList, R <: HList]
+  (implicit gen: LabelledGeneric.Aux[T[Predicted], L],
+            map: ops.record.MapValues.Aux[toPlanIO.type, L, M],
+            sequence: RecordSequencer.Aux[M, PlanIO[N]],
+            rgen: LabelledGeneric.Aux[T[Id], R],
+            align: Align[N, R],
+  ): SequencePredicted[T] = new SequencePredicted[T] {
+    def apply(t: T[Predicted]): PlanIO[T[Id]] = {
+      Predicted.sequence(t)
+    }
+  }
+
+}
+
 object Predicted {
   trait LowPriorityImplicits extends Poly1 {
     implicit def default[T] = at[T] { a => Async[PlanIO].pure(a) }
@@ -80,7 +102,7 @@ object Predicted {
     * a PlanIO[A]. This gives us a tuple of PlanIO's, or in the code below an HList of PlanIO's. Finally, `RecordSequencer`
     * converts an HList of PlanIO's into a PlanIO of HList. The resulting HList is then Aligned back into T[Id].
     */
-  def sequence[T[_[_]], L <: HList, M <: HList, R <: HList, N <: HList]
+  def sequence[T[_[_]], L <: HList, M <: HList, N <: HList, R <: HList]
   (t: T[Predicted])(implicit gen: LabelledGeneric.Aux[T[Predicted], L],
                     map: ops.record.MapValues.Aux[toPlanIO.type, L, M],
                     sequence: RecordSequencer.Aux[M, PlanIO[N]],

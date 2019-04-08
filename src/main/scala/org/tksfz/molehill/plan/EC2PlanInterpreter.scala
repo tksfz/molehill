@@ -8,7 +8,7 @@ import cats.effect.concurrent.Deferred
 import cats.free.Free
 import org.tksfz.molehill.algebra.{EC2Alg, EC2Exports, EC2Spec}
 import org.tksfz.molehill.aws.ec2.EC2Kleisli
-import org.tksfz.molehill.data.{Bifocals, External, ExternalDerived, Predicted}
+import org.tksfz.molehill.data.{Bifocals, External, ExternalDerived, Predicted, SequencePredicted}
 import shapeless._
 import software.amazon.awssdk.services.ec2.Ec2AsyncClient
 import software.amazon.awssdk.services.ec2.model.{AttributeValue, ModifyInstanceAttributeRequest, RunInstancesRequest, RunInstancesResponse}
@@ -46,17 +46,15 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
       }
     } { case (preSpec: EC2Spec[Id], preExports: EC2Exports[Id]) =>
       implicit val ctx: Context[EC2Spec, EC2Exports] = Context(preSpec, preExports, targetSpec)
-      syncModify(field('instanceType)) { ec2 =>
-        for {
-          instanceType <- targetSpec.instanceType.toPlanIO
-        } yield {
-          ec2.modifyInstanceAttribute(
-            ModifyInstanceAttributeRequest.builder()
-              .instanceId(preExports.instanceId)
-              .instanceType(AttributeValue.builder().value(instanceType).build())
-              .build())
-          EC2Exports[Id](preExports.instanceId, instanceType, preExports.amiId)
-        }
+      syncModify(field('instanceType)) { targetSpec => ec2 =>
+        val instanceType = targetSpec.instanceType
+        ec2.modifyInstanceAttribute(
+          ModifyInstanceAttributeRequest.builder()
+            .instanceId(preExports.instanceId)
+            .instanceType(AttributeValue.builder().value(instanceType).build())
+            .build())
+        // temporary until we add deferFuture
+        Async[PlanIO].pure(EC2Exports[Id](preExports.instanceId, instanceType, preExports.amiId))
       }
     }
   }
@@ -74,14 +72,20 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
     * @param bifocals a pair of lenses over Spec and Exports that selects an attribute they hold in common
     */
   private def syncModify[Spec[_[_]], Exports[_[_]], A](bifocals: Bifocals[Spec[Predicted], Exports[Predicted], A])
-                                                      (mkConsistent: Ec2AsyncClient => PlanIO[Exports[Id]])
-                                                      (implicit context: Context[Spec, Exports]): PlanIO[Exports[Predicted]] = {
+                                                      (mkConsistent: Spec[Id] => Ec2AsyncClient => PlanIO[Exports[Id]])
+                                                      (implicit context: Context[Spec, Exports],
+                                                       sequencer: SequencePredicted[Spec]): PlanIO[Exports[Predicted]] = {
     val preSpecWhence: Spec[Predicted] = ???
     val preExportsWhence: Exports[Predicted] = ???
     if (isInconsistent(bifocals.lens1.get)) {
       val a = bifocals.lens1.get(context.targetSpec)
       val predictedExports = bifocals.lens2.set(preExportsWhence)(a)
-      Free.liftF(Modify(context.preSpec, context.targetSpec, predictedExports, EC2Kleisli(mkConsistent)))
+      for {
+        targetSpec <- sequencer(context.targetSpec)
+        x <- Free.liftF(Modify(context.preSpec, context.targetSpec, predictedExports, EC2Kleisli(mkConsistent(targetSpec))))
+      } yield {
+        x
+      }
     } else {
       ???
     }
