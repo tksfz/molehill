@@ -27,13 +27,7 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
           for {
             spec <- targetSpecFinal
             request = RunInstancesRequest.builder().instanceType(spec.instanceType).imageId(spec.amiId).build()
-            response <- Async[PlanIO].async[RunInstancesResponse] { cb =>
-              ec2.runInstances(request).whenComplete(new BiConsumer[RunInstancesResponse, Throwable] {
-                override def accept(t: RunInstancesResponse, u: Throwable) = {
-                  cb(if (u != null) Left(u) else Right(t))
-                }
-              })
-            }
+            response <- PlanIO.fromCompletableFuture(ec2.runInstances(request))
             _ <- instanceId.complete(response.instances().get(0).instanceId)
           } yield {
             val responseHead = response.instances().get(0)
@@ -47,13 +41,14 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
       implicit val ctx: Context[EC2Spec, EC2Exports] = Context(preSpec, preExports, targetSpec)
       syncModify(field('instanceType)) { targetSpec => ec2 =>
         val instanceType = targetSpec.instanceType
-        ec2.modifyInstanceAttribute(
+        PlanIO.fromCompletableFuture(ec2.modifyInstanceAttribute(
           ModifyInstanceAttributeRequest.builder()
             .instanceId(preExports.instanceId)
             .instanceType(AttributeValue.builder().value(instanceType).build())
-            .build())
-        // temporary until we add deferFuture
-        Async[PlanIO].pure(EC2Exports[Id](preExports.instanceId, instanceType, preExports.amiId))
+            .build()))
+            .map { _ =>
+              EC2Exports[Id](preExports.instanceId, instanceType, preExports.amiId)
+            }
       }
     }
   }

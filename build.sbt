@@ -18,3 +18,5 @@ libraryDependencies ++= Seq(
 )
 
 libraryDependencies += "org.typelevel" %% "kittens" % "1.2.0"
+
+libraryDependencies += "io.monix" %% "monix-catnap" % "3.0.0-RC2"
