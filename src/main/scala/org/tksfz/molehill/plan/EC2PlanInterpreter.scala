@@ -27,6 +27,7 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
             spec <- Predicted.sequence(targetSpec)
             request = RunInstancesRequest.builder().instanceType(spec.instanceType).imageId(spec.amiId).build()
             response <- PlanIO.fromCompletableFuture(ec2.runInstances(request))
+            // TODO: automatically push kleisli Exports results into deferred
             _ <- instanceId.complete(response.instances().get(0).instanceId)
           } yield {
             val responseHead = response.instances().get(0)
@@ -44,6 +45,9 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
             .instanceId(preExports.instanceId)
             .instanceType(AttributeValue.builder().value(targetSpec.instanceType).build())
             .build()))
+          .map { _ =>
+            EC2Exports[Id](preExports.instanceId, targetSpec.instanceType, preExports.amiId)
+          }
       }
     }
   }
@@ -61,10 +65,9 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
     * @param field a pair of lenses over Spec and Exports that selects an attribute they hold in common
     */
   private def syncModify[Spec[_[_]], Exports[_[_]], A](field: Bifocals[Spec[Predicted], Exports[Predicted], A])
-                                                      (mkConsistent: Ec2AsyncClient => Spec[Id] => PlanIO[_])
+                                                      (mkConsistent: Ec2AsyncClient => Spec[Id] => PlanIO[Exports[Id]])
                                                       (implicit context: Context[Spec, Exports],
-                                                       sequencer: SequencePredicted[Spec],
-                                                       exportsSequencer: SequencePredicted[Exports]): PlanIO[Exports[Predicted]] = {
+                                                       sequencer: SequencePredicted[Spec]): PlanIO[Exports[Predicted]] = {
     val preSpecWhence: Spec[Predicted] = ???
     val preExportsWhence: Exports[Predicted] = ???
     if (isInconsistent(field.lens1.get)) {
@@ -74,9 +77,12 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
         targetSpec <- sequencer(context.targetSpec)
         x <- Free.liftF(Modify(context.preSpec, context.targetSpec, predictedExports,
           EC2Kleisli { ec2 =>
-            mkConsistent(ec2)(targetSpec).flatMap { _ =>
-              exportsSequencer(predictedExports)
-            }
+            // TODO: results can come from one of 3 places:
+            // (1) describe after provisioning
+            // (2) predicted targetSpec
+            // (3) provisioning API response
+            // Also, results may need to be pushed back into a Deferred within predictedExports
+            mkConsistent(ec2)(targetSpec)
           }))
       } yield {
         x
