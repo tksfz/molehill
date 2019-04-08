@@ -21,11 +21,10 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
       for {
         instanceId <- Deferred.uncancelable[PlanIO, String]
         // An example optimization would be to invoke runInstances
-        exports = EC2Exports(External(instanceId), targetSpec.instanceType, targetSpec.amiId)
-        x <- Free.liftF(CreateAnew(targetSpec, exports, EC2Kleisli[PlanIO, EC2Exports[Id]] { ec2 =>
-          val targetSpecFinal: PlanIO[EC2Spec[Id]] = Predicted.sequence(targetSpec)
+        predictedExports = EC2Exports(External(instanceId), targetSpec.instanceType, targetSpec.amiId)
+        x <- Free.liftF(CreateAnew(targetSpec, predictedExports, EC2Kleisli[PlanIO, EC2Exports[Id]] { ec2 =>
           for {
-            spec <- targetSpecFinal
+            spec <- Predicted.sequence(targetSpec)
             request = RunInstancesRequest.builder().instanceType(spec.instanceType).imageId(spec.amiId).build()
             response <- PlanIO.fromCompletableFuture(ec2.runInstances(request))
             _ <- instanceId.complete(response.instances().get(0).instanceId)
@@ -39,16 +38,12 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
       }
     } { case (preSpec: EC2Spec[Id], preExports: EC2Exports[Id]) =>
       implicit val ctx: Context[EC2Spec, EC2Exports] = Context(preSpec, preExports, targetSpec)
-      syncModify(field('instanceType)) { targetSpec => ec2 =>
-        val instanceType = targetSpec.instanceType
+      syncModify(field('instanceType)) { ec2 => targetSpec =>
         PlanIO.fromCompletableFuture(ec2.modifyInstanceAttribute(
           ModifyInstanceAttributeRequest.builder()
             .instanceId(preExports.instanceId)
-            .instanceType(AttributeValue.builder().value(instanceType).build())
+            .instanceType(AttributeValue.builder().value(targetSpec.instanceType).build())
             .build()))
-            .map { _ =>
-              EC2Exports[Id](preExports.instanceId, instanceType, preExports.amiId)
-            }
       }
     }
   }
@@ -63,20 +58,26 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
     * A lens over the spec and exports is used to retrieve the value from the spec (to determine consistency)
     * and update the value in the exports.
     *
-    * @param bifocals a pair of lenses over Spec and Exports that selects an attribute they hold in common
+    * @param field a pair of lenses over Spec and Exports that selects an attribute they hold in common
     */
-  private def syncModify[Spec[_[_]], Exports[_[_]], A](bifocals: Bifocals[Spec[Predicted], Exports[Predicted], A])
-                                                      (mkConsistent: Spec[Id] => Ec2AsyncClient => PlanIO[Exports[Id]])
+  private def syncModify[Spec[_[_]], Exports[_[_]], A](field: Bifocals[Spec[Predicted], Exports[Predicted], A])
+                                                      (mkConsistent: Ec2AsyncClient => Spec[Id] => PlanIO[_])
                                                       (implicit context: Context[Spec, Exports],
-                                                       sequencer: SequencePredicted[Spec]): PlanIO[Exports[Predicted]] = {
+                                                       sequencer: SequencePredicted[Spec],
+                                                       exportsSequencer: SequencePredicted[Exports]): PlanIO[Exports[Predicted]] = {
     val preSpecWhence: Spec[Predicted] = ???
     val preExportsWhence: Exports[Predicted] = ???
-    if (isInconsistent(bifocals.lens1.get)) {
-      val a = bifocals.lens1.get(context.targetSpec)
-      val predictedExports = bifocals.lens2.set(preExportsWhence)(a)
+    if (isInconsistent(field.lens1.get)) {
+      val targetFieldValue = field.lens1.get(context.targetSpec)
+      val predictedExports = field.lens2.set(preExportsWhence)(targetFieldValue)
       for {
         targetSpec <- sequencer(context.targetSpec)
-        x <- Free.liftF(Modify(context.preSpec, context.targetSpec, predictedExports, EC2Kleisli(mkConsistent(targetSpec))))
+        x <- Free.liftF(Modify(context.preSpec, context.targetSpec, predictedExports,
+          EC2Kleisli { ec2 =>
+            mkConsistent(ec2)(targetSpec).flatMap { _ =>
+              exportsSequencer(predictedExports)
+            }
+          }))
       } yield {
         x
       }
