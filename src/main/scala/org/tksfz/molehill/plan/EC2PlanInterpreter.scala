@@ -23,7 +23,6 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
         // An example optimization would be to invoke runInstances
         exports = EC2Exports(External(instanceId), targetSpec.instanceType, targetSpec.amiId)
         x <- Free.liftF(CreateAnew(targetSpec, exports, EC2Kleisli[PlanIO, EC2Exports[Id]] { ec2 =>
-          // TODO: we'll have a generic function that takes Spec[Whence] => Spec[Id] or Spec[PlanIO]
           val targetSpecFinal: PlanIO[EC2Spec[Id]] = Predicted.sequence(targetSpec)
           for {
             spec <- targetSpecFinal
