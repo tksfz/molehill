@@ -6,5 +6,5 @@ import cats.free.Free
 package object plan {
   type PlanIO[A] = Free[Plan, A]
 
-  implicit val asyncFreePlan: Async[PlanIO] = ???
+  implicit val asyncPlanIO: Async[PlanIO] = ???
 }
