@@ -3,12 +3,10 @@ package org.tksfz.molehill.plan
 import java.util.function.BiConsumer
 
 import cats.Id
-import cats.data.Kleisli
 import cats.effect.{Async, IO}
 import cats.effect.concurrent.Deferred
 import cats.free.Free
 import org.tksfz.molehill.algebra.{EC2Alg, EC2Exports, EC2Spec}
-import org.tksfz.molehill.aws.ec2
 import org.tksfz.molehill.aws.ec2.EC2Kleisli
 import org.tksfz.molehill.data.{Bifocals, External, ExternalDerived, Predicted}
 import shapeless._
@@ -26,10 +24,10 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
         exports = EC2Exports(External(instanceId), targetSpec.instanceType, targetSpec.amiId)
         x <- Free.liftF(CreateAnew(targetSpec, exports, EC2Kleisli[PlanIO, EC2Exports[Id]] { ec2 =>
           // TODO: we'll have a generic function that takes Spec[Whence] => Spec[Id] or Spec[PlanIO]
+          val targetSpecFinal: PlanIO[EC2Spec[Id]] = Predicted.sequence(targetSpec)
           for {
-            amiId <- targetSpec.amiId.toPlanIO
-            instanceType <- targetSpec.instanceType.toPlanIO
-            request = RunInstancesRequest.builder().instanceType(instanceType).imageId(amiId).build()
+            spec <- targetSpecFinal
+            request = RunInstancesRequest.builder().instanceType(spec.instanceType).imageId(spec.amiId).build()
             response <- Async[PlanIO].async[RunInstancesResponse] { cb =>
               ec2.runInstances(request).whenComplete(new BiConsumer[RunInstancesResponse, Throwable] {
                 override def accept(t: RunInstancesResponse, u: Throwable) = {
@@ -46,7 +44,7 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
       } yield {
         x
       }
-    } { case (preSpec, preExports) =>
+    } { case (preSpec: EC2Spec[Id], preExports: EC2Exports[Id]) =>
       implicit val ctx: Context[EC2Spec, EC2Exports] = Context(preSpec, preExports, targetSpec)
       syncModify(field('instanceType)) { ec2 =>
         for {
@@ -81,8 +79,9 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
     val preSpecWhence: Spec[Predicted] = ???
     val preExportsWhence: Exports[Predicted] = ???
     if (isInconsistent(bifocals.lens1.get)) {
+      val a = bifocals.lens1.get(context.targetSpec)
       val predictedExports = bifocals.lens2.set(preExportsWhence)(a)
-      Free.liftF(Modify(context.preSpec, context.targetSpec, predictedExports, EC2Kliesli(mkConsistent)))
+      Free.liftF(Modify(context.preSpec, context.targetSpec, predictedExports, EC2Kleisli(mkConsistent)))
     } else {
       ???
     }
@@ -95,8 +94,8 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
     * @param f selects an attribute from the specification type Spec
     * @return true when the value of the attribute in the preSpec is inconsistent with the targetSpec
     */
-  private def isInconsistent[Spec[_[_]], D[_], A](f: Spec[D] => A)(implicit context: Context[Spec, _]): Boolean = {
-    val a = f(context.preSpec)
+  private def isInconsistent[Spec[_[_]], A, Exports[_[_]]](f: Spec[Predicted] => A)(implicit context: Context[Spec, Exports]): Boolean = {
+    val a = f(context.preSpec.asInstanceOf[Spec[Predicted]])
     val b = f(context.targetSpec)
     a != b
   }

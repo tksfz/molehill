@@ -16,3 +16,5 @@ resolvers ++= Seq(
 libraryDependencies ++= Seq(
   "com.chuusai" %% "shapeless" % "2.3.3"
 )
+
+libraryDependencies += "org.typelevel" %% "kittens" % "1.2.0"
