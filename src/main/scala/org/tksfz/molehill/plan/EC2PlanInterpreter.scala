@@ -3,6 +3,7 @@ package org.tksfz.molehill.plan
 import java.util.function.BiConsumer
 
 import cats.Id
+import cats.data.Kleisli
 import cats.effect.{Async, IO}
 import cats.effect.concurrent.Deferred
 import cats.free.Free
@@ -11,7 +12,7 @@ import org.tksfz.molehill.aws.ec2.EC2Kleisli
 import org.tksfz.molehill.data.{Bifocals, External, ExternalDerived, Predicted, SequencePredicted}
 import shapeless._
 import software.amazon.awssdk.services.ec2.Ec2AsyncClient
-import software.amazon.awssdk.services.ec2.model.{AttributeValue, ModifyInstanceAttributeRequest, RunInstancesRequest, RunInstancesResponse}
+import software.amazon.awssdk.services.ec2.model.{AttributeBooleanValue, AttributeValue, ModifyInstanceAttributeRequest, RunInstancesRequest, RunInstancesResponse}
 
 class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Predicted] {
 
@@ -21,7 +22,7 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
       for {
         instanceId <- Deferred.uncancelable[PlanIO, String]
         // An example optimization would be to invoke runInstances
-        predictedExports = EC2Exports(External(instanceId), targetSpec.instanceType, targetSpec.amiId)
+        predictedExports = EC2Exports(External(instanceId), targetSpec.instanceType, targetSpec.amiId, targetSpec.disableApiTermination)
         x <- Free.liftF(CreateAnew(targetSpec, predictedExports, EC2Kleisli[PlanIO, EC2Exports[Id]] { ec2 =>
           for {
             spec <- Predicted.sequence(targetSpec)
@@ -31,7 +32,7 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
             _ <- instanceId.complete(response.instances().get(0).instanceId)
           } yield {
             val responseHead = response.instances().get(0)
-            EC2Exports[Id](responseHead.instanceId, responseHead.instanceTypeAsString, responseHead.imageId)
+            EC2Exports[Id](responseHead.instanceId, responseHead.instanceTypeAsString, responseHead.imageId, ???)
           }
         }))
       } yield {
@@ -39,15 +40,31 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
       }
     } { case (preSpec: EC2Spec[Id], preExports: EC2Exports[Id]) =>
       implicit val ctx: Context[EC2Spec, EC2Exports] = Context(preSpec, preExports, targetSpec)
-      syncModify(field('instanceType)) { ec2 => targetSpec =>
-        PlanIO.fromCompletableFuture(ec2.modifyInstanceAttribute(
-          ModifyInstanceAttributeRequest.builder()
-            .instanceId(preExports.instanceId)
-            .instanceType(AttributeValue.builder().value(targetSpec.instanceType).build())
-            .build()))
-          .map { _ =>
-            EC2Exports[Id](preExports.instanceId, targetSpec.instanceType, preExports.amiId)
-          }
+      for {
+        _ <- syncModify(field('instanceType)) { ec2 => targetSpec =>
+          PlanIO.fromCompletableFuture(ec2.modifyInstanceAttribute(
+            ModifyInstanceAttributeRequest.builder()
+              .instanceId(preExports.instanceId)
+              .instanceType(AttributeValue.builder().value(targetSpec.instanceType).build())
+              .build()))
+              .map { _ =>
+                EC2Exports[Id](preExports.instanceId, targetSpec.instanceType, preExports.amiId, preExports.disableApiTermination)
+              }
+        }
+        x <- syncModify(field('disableApiTermination)) { ec2 => targetSpec =>
+          //ec2.modifyInstancePlacement()
+          PlanIO.fromCompletableFuture(ec2.modifyInstanceAttribute(
+            ModifyInstanceAttributeRequest.builder()
+              .instanceId(preExports.instanceId)
+              .disableApiTermination(AttributeBooleanValue.builder().value(targetSpec.disableApiTermination).build())
+              .build()))
+              .map { _ =>
+                EC2Exports[Id](preExports.instanceId, preExports.instanceType, preExports.amiId, targetSpec.disableApiTermination)
+              }
+        }
+      } yield {
+        // TODO: this is wrong. we need to accumulate all the modifications.
+        x
       }
     }
   }
@@ -68,12 +85,12 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
                                                       (mkConsistent: Ec2AsyncClient => Spec[Id] => PlanIO[Exports[Id]])
                                                       (implicit context: Context[Spec, Exports],
                                                        sequencer: SequencePredicted[Spec]): PlanIO[Exports[Predicted]] = {
-    val preSpecWhence: Spec[Predicted] = ???
     val preExportsWhence: Exports[Predicted] = ???
     if (isInconsistent(field.lens1.get)) {
       val targetFieldValue = field.lens1.get(context.targetSpec)
       val predictedExports = field.lens2.set(preExportsWhence)(targetFieldValue)
       for {
+        // this is wrong. We want to return Modify outside of the PlanIO context
         targetSpec <- sequencer(context.targetSpec)
         x <- Free.liftF(Modify(context.preSpec, context.targetSpec, predictedExports,
           EC2Kleisli { ec2 =>
