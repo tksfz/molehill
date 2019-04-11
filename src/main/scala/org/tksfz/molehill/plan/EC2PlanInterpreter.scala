@@ -42,7 +42,7 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
     } { case (preSpec: EC2Spec[Id], preExports: EC2Exports[Id]) =>
       implicit val ctx = Context(preSpec, preExports)
       Free.liftF(
-        ModifyBuilder(preSpec, preExports, targetSpec)
+        Modify(preSpec, preExports, targetSpec)
           .withFieldSolver(field.apply[String]('instanceType)) { exports =>
             Kleisli[PlanIO, (Ec2AsyncClient, EC2Spec[Id]), String] { case (ec2, targetSpec) =>
               PlanIO.fromCompletableFuture(ec2.modifyInstanceAttribute(

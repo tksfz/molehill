@@ -6,7 +6,7 @@ import org.tksfz.molehill.data.{Predicted, Quadfocals}
 import software.amazon.awssdk.services.ec2.Ec2AsyncClient
 
 trait PlanBuilder {
-  implicit class ModifyExtensionMethods[Spec[_[_]], Exports[_[_]]](val modify: ModifyBuilder[Spec, Exports]) {
+  implicit class ModifyExtensionMethods[Spec[_[_]], Exports[_[_]]](val modify: Modify[Spec, Exports]) {
     // Deferred's can be handled with a tap for example
     /** Helper function to apply the common pattern of detecting whether a particular field in the
       * specification is inconsistent and, if so, runs a particular operation to make it consistent.
@@ -25,7 +25,7 @@ trait PlanBuilder {
       * @param field a quadruple of lenses over Spec and Exports that selects an attribute they hold in common
       */
     def withFieldSolver[A](field: Quadfocals[Spec[Predicted], Exports[Predicted], Predicted[A], Spec[Id], Exports[Id], A])
-                          (mkConsistent: Exports[Id] => Kleisli[PlanIO, (Ec2AsyncClient, Spec[Id]), A]): ModifyBuilder[Spec, Exports] = {
+                          (mkConsistent: Exports[Id] => Kleisli[PlanIO, (Ec2AsyncClient, Spec[Id]), A]): Modify[Spec, Exports] = {
       if (isInconsistent(field.lens1.get, modify.preSpecLocal, modify.targetSpec)) {
         modify.updated(field.copyFromTo(modify.targetSpec, _)) {
           exports =>

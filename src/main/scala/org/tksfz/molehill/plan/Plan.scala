@@ -18,14 +18,21 @@ sealed trait Plan[A]
 case class CreateAnew[Spec[_[_]], Exports[_[_]]](postSpec: Spec[Predicted], postExports: Exports[Predicted],
                                                  execute: EC2Kleisli[PlanIO, Exports[Id]]) extends Plan[Exports[Predicted]]
 
-case class ModifyBuilder[Spec[_[_]], Exports[_[_]]](preSpec: Spec[Id], predictedExports: Exports[Predicted], targetSpec: Spec[Predicted],
-                                                    execute: Kleisli[PlanIO, (Ec2AsyncClient, Spec[Id]), Exports[Id]])
-                                                   (implicit sequencer: SequencePredicted[Spec]) extends Plan[Exports[Predicted]] {
+/**
+  * @param preSpec the spec before any modifications have been performed
+  * @param targetSpec the ultimate spec we're aiming for
+  * @param predictedExports the predicted exports after this modification
+  * @param execute applies this modification
+  */
+case class Modify[Spec[_[_]], Exports[_[_]]](preSpec: Spec[Id], targetSpec: Spec[Predicted], predictedExports: Exports[Predicted],
+                                             execute: Kleisli[PlanIO, (Ec2AsyncClient, Spec[Id]), Exports[Id]])
+                                            (implicit sequencer: SequencePredicted[Spec]) extends Plan[Exports[Predicted]] {
   lazy val preSpecLocal: Spec[Predicted] = ???
 
   // TODO: handle deferreds. For example we can check that all new Deferred's are completed here.
   def updated(updatePredictedExports: Exports[Predicted] => Exports[Predicted])(next: Exports[Id] => Kleisli[PlanIO, (Ec2AsyncClient, Spec[Id]), Exports[Id]]) = {
-    ModifyBuilder(preSpec, updatePredictedExports(predictedExports), targetSpec, execute.flatMap(next))
+    // TODO: consider adding postSpec and updating it
+    Modify(preSpec, targetSpec, updatePredictedExports(predictedExports), execute.flatMap(next))
   }
 
   def toEC2PlanKleisli: EC2Kleisli[PlanIO, Exports[Id]] = {
@@ -38,16 +45,13 @@ case class ModifyBuilder[Spec[_[_]], Exports[_[_]]](preSpec: Spec[Id], predicted
   }
 }
 
-object ModifyBuilder {
+object Modify {
   def apply[Spec[_[_]] : SequencePredicted, Exports[_[_]]](preSpec: Spec[Id], preExports: Exports[Id],
-                                                           targetSpec: Spec[Predicted]): ModifyBuilder[Spec, Exports] = {
-    val preExportsLocal: Exports[Predicted] = ???
-    ModifyBuilder(preSpec, preExportsLocal, targetSpec, Kleisli.pure[PlanIO, (Ec2AsyncClient, Spec[Id]), Exports[Id]](preExports))
+                                                           targetSpec: Spec[Predicted]): Modify[Spec, Exports] = {
+    val predictedExports: Exports[Predicted] = ???
+    Modify(preSpec, targetSpec, predictedExports, Kleisli.pure[PlanIO, (Ec2AsyncClient, Spec[Id]), Exports[Id]](preExports))
   }
 }
-
-case class Modify[Spec[_[_]], Exports[_[_]]](preSpec: Spec[Id], postSpec: Spec[Predicted], postExports: Exports[Predicted],
-                                             execute: EC2Kleisli[PlanIO, Exports[Id]]) extends Plan[Exports[Predicted]]
 
 object PlanIO {
   def fromCompletableFuture[T](cf: CompletableFuture[T]) = {
