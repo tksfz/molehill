@@ -9,8 +9,9 @@ import cats.effect.concurrent.Deferred
 import cats.free.Free
 import org.tksfz.molehill.algebra.{EC2Alg, EC2Exports, EC2Spec}
 import org.tksfz.molehill.aws.ec2.EC2Kleisli
-import org.tksfz.molehill.data.{Bifocals, External, ExternalDerived, Predicted, SequencePredicted}
+import org.tksfz.molehill.data.{Bifocals, External, ExternalDerived, Predicted, Quadfocals, SequencePredicted}
 import shapeless._
+import shapeless.ops.record.Selector
 import software.amazon.awssdk.services.ec2.Ec2AsyncClient
 import software.amazon.awssdk.services.ec2.model.{AttributeBooleanValue, AttributeValue, ModifyInstanceAttributeRequest, RunInstancesRequest, RunInstancesResponse}
 
@@ -39,97 +40,62 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
         x
       }
     } { case (preSpec: EC2Spec[Id], preExports: EC2Exports[Id]) =>
-      implicit val ctx: Context[EC2Spec, EC2Exports] = Context(preSpec, preExports, targetSpec)
-      for {
-        _ <- syncModify(field('instanceType)) { ec2 => targetSpec =>
-          PlanIO.fromCompletableFuture(ec2.modifyInstanceAttribute(
-            ModifyInstanceAttributeRequest.builder()
-              .instanceId(preExports.instanceId)
-              .instanceType(AttributeValue.builder().value(targetSpec.instanceType).build())
-              .build()))
-              .map { _ =>
-                EC2Exports[Id](preExports.instanceId, targetSpec.instanceType, preExports.amiId, preExports.disableApiTermination)
-              }
+      Free.liftF(
+        ModifyBuilder(preSpec, preExports, targetSpec)
+          .withFieldSolver[String](field[EC2Spec, EC2Exports].apply.apply[Predicted[String], String]('instanceType)) { exports =>
+            Kleisli[PlanIO, (Ec2AsyncClient, EC2Spec[Id]), String] { case (ec2, targetSpec) =>
+              PlanIO.fromCompletableFuture(ec2.modifyInstanceAttribute(
+                ModifyInstanceAttributeRequest.builder()
+                  .instanceType(AttributeValue.builder().value(targetSpec.instanceType).build())
+                  .build()))
+                .map { _ =>
+                  targetSpec.instanceType
+                }
+          }
         }
-        x <- syncModify(field('disableApiTermination)) { ec2 => targetSpec =>
-          //ec2.modifyInstancePlacement()
-          PlanIO.fromCompletableFuture(ec2.modifyInstanceAttribute(
-            ModifyInstanceAttributeRequest.builder()
-              .instanceId(preExports.instanceId)
-              .disableApiTermination(AttributeBooleanValue.builder().value(targetSpec.disableApiTermination).build())
-              .build()))
-              .map { _ =>
-                EC2Exports[Id](preExports.instanceId, preExports.instanceType, preExports.amiId, targetSpec.disableApiTermination)
-              }
-        }
-      } yield {
-        // TODO: this is wrong. we need to accumulate all the modifications.
-        x
-      }
+      )
     }
   }
 
-  case class Context[Spec[_[_]], Exports[_[_]]](preSpec: Spec[Id], preExports: Exports[Id], targetSpec: Spec[Predicted])
-
-  /** Helper function to apply the common pattern of detecting whether a particular attribute in the
-    * specification is inconsistent and, if so, runs a particular operation to make it consistent.
-    *
-    * The exported value for field f is then predicted to be the targetSpec value of f.
-    *
-    * A lens over the spec and exports is used to retrieve the value from the spec (to determine consistency)
-    * and update the value in the exports.
-    *
-    * @param field a pair of lenses over Spec and Exports that selects an attribute they hold in common
-    */
-  private def syncModify[Spec[_[_]], Exports[_[_]], A](field: Bifocals[Spec[Predicted], Exports[Predicted], A])
-                                                      (mkConsistent: Ec2AsyncClient => Spec[Id] => PlanIO[Exports[Id]])
-                                                      (implicit context: Context[Spec, Exports],
-                                                       sequencer: SequencePredicted[Spec]): PlanIO[Exports[Predicted]] = {
-    val preExportsWhence: Exports[Predicted] = ???
-    if (isInconsistent(field.lens1.get)) {
-      val targetFieldValue = field.lens1.get(context.targetSpec)
-      val predictedExports = field.lens2.set(preExportsWhence)(targetFieldValue)
-      for {
-        // this is wrong. We want to return Modify outside of the PlanIO context
-        targetSpec <- sequencer(context.targetSpec)
-        x <- Free.liftF(Modify(context.preSpec, context.targetSpec, predictedExports,
-          EC2Kleisli { ec2 =>
-            // TODO: results can come from one of 3 places:
-            // (1) describe after provisioning
-            // (2) predicted targetSpec
-            // (3) provisioning API response
-            // Also, results may need to be pushed back into a Deferred within predictedExports
-            mkConsistent(ec2)(targetSpec)
-          }))
-      } yield {
-        x
-      }
-    } else {
-      ???
-    }
-  }
-
-  /** Determines whether the attribute specified by f is inconsistent between the targetSpec and preSpec.
-    *
-    * Should this require f: Spec[D] => D[A]?
-    *
-    * @param f selects an attribute from the specification type Spec
-    * @return true when the value of the attribute in the preSpec is inconsistent with the targetSpec
-    */
-  private def isInconsistent[Spec[_[_]], A, Exports[_[_]]](f: Spec[Predicted] => A)(implicit context: Context[Spec, Exports]): Boolean = {
-    val a = f(context.preSpec.asInstanceOf[Spec[Predicted]])
-    val b = f(context.targetSpec)
-    a != b
-  }
-
-  /** Simultaneously defines lenses for both Spec and Exports for fields that they hold in common.
-    * Uses an implicit Context to infer the Spec and Exports types.
-    */
-  def field[Spec[_[_]], Exports[_[_]], A](k: Witness)
+  /*
+  // Below doesn't work due to https://github.com/milessabin/shapeless/issues/889
+  def field2[Spec[_[_]], Exports[_[_]], A, B](k: Witness)
                                          (implicit context: Context[Spec, Exports],
                                           mkLens1: MkFieldLens.Aux[Spec[Predicted], k.T, A],
-                                          mkLens2: MkFieldLens.Aux[Exports[Predicted], k.T, A]): Bifocals[Spec[Predicted], Exports[Predicted], A] = {
-    Bifocals[Spec[Predicted], Exports[Predicted], A](k)
+                                          mkLens2: MkFieldLens.Aux[Exports[Predicted], k.T, A],
+                                          mkLens3: MkFieldLens.Aux[Spec[Id], k.T, B],
+                                          mkLens4: MkFieldLens.Aux[Exports[Id], k.T, B],
+                                         )
+  : (Bifocals[Spec[Predicted], Exports[Predicted], A], Bifocals[Spec[Id], Exports[Id], B]) = {
+    (Bifocals[Spec[Predicted], Exports[Predicted], A](k), Bifocals[Spec[Id], Exports[Id], B](k))
+  } */
+
+  /** Simultaneously creates lenses for (Spec, Exports) X (Predicted, Id) for fields that they hold in common.
+    * Uses an implicit Context to infer the Spec and Exports types.
+    * This implementation works around https://github.com/milessabin/shapeless/issues/889 where type inference
+    * seems to fail for ops.record.Selector[Spec[Id]].
+    */
+  class QuadfocalsBuilder[Spec[_[_]], Exports[_[_]]] {
+    def apply[R1 <: HList, R2 <: HList, R3 <: HList, R4 <: HList]
+    (implicit g1: MkLabelledGenericLens.Aux[Spec[Predicted], R1],
+     g2: MkLabelledGenericLens.Aux[Exports[Predicted], R2],
+     g3: MkLabelledGenericLens.Aux[Spec[Id], R3],
+     g4: MkLabelledGenericLens.Aux[Exports[Id], R4]) = new {
+      def apply[A, B](k: Witness)
+                (implicit l1: MkRecordSelectLens.Aux[R1, k.T, A],
+                 l2: MkRecordSelectLens.Aux[R2, k.T, A],
+                 l3: MkRecordSelectLens.Aux[R3, k.T, B],
+                 l4: MkRecordSelectLens.Aux[R4, k.T, B]
+                ): Quadfocals[Spec[Predicted], Exports[Predicted], A, Spec[Id], Exports[Id], B] = {
+        Quadfocals(l1() compose g1(), l2() compose g2(), l3() compose g3(), l4() compose g4())
+      }
+    }
   }
+
+  def field[Spec[_[_]], Exports[_[_]]]
+  (implicit g1: MkLabelledGenericLens[Spec[Predicted]],
+   g2: MkLabelledGenericLens[Exports[Predicted]],
+   g3: MkLabelledGenericLens[Spec[Id]],
+   g4: MkLabelledGenericLens[Exports[Id]]) = new QuadfocalsBuilder[Spec, Exports]
 
 }
