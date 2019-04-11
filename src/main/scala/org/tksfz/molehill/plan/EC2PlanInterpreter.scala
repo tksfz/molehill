@@ -9,7 +9,7 @@ import cats.effect.concurrent.Deferred
 import cats.free.Free
 import org.tksfz.molehill.algebra.{EC2Alg, EC2Exports, EC2Spec}
 import org.tksfz.molehill.aws.ec2.EC2Kleisli
-import org.tksfz.molehill.data.{Bifocals, External, ExternalDerived, Predicted, Quadfocals, SequencePredicted}
+import org.tksfz.molehill.data.{Bifocals, External, ExternalDerived, Predicted, Quadfocals, QuadfocalsBuilder, SequencePredicted}
 import shapeless._
 import shapeless.ops.record.Selector
 import software.amazon.awssdk.services.ec2.Ec2AsyncClient
@@ -43,17 +43,17 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
       implicit val ctx = Context(preSpec, preExports)
       Free.liftF(
         Modify(preSpec, preExports, targetSpec)
-          .withFieldSolver(field.apply[String]('instanceType)) { exports =>
-            Kleisli[PlanIO, (Ec2AsyncClient, EC2Spec[Id]), String] { case (ec2, targetSpec) =>
+          .withField(builder.field[String]('instanceType)) { instanceType =>
+            Kleisli[PlanIO, Ec2AsyncClient, String] { ec2 =>
               PlanIO.fromCompletableFuture(ec2.modifyInstanceAttribute(
                 ModifyInstanceAttributeRequest.builder()
-                  .instanceType(AttributeValue.builder().value(targetSpec.instanceType).build())
+                  .instanceType(AttributeValue.builder().value(instanceType).build())
                   .build()))
                 .map { _ =>
-                  targetSpec.instanceType
+                  instanceType
                 }
+            }
           }
-        }
       )
     }
   }
@@ -73,28 +73,9 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
     (Bifocals[Spec[Predicted], Exports[Predicted], A](k), Bifocals[Spec[Id], Exports[Id], B](k))
   } */
 
-  /** Simultaneously creates lenses for (Spec, Exports) X (Predicted, Id) for fields that they hold in common.
-    * This implementation works around https://github.com/milessabin/shapeless/issues/889 where type inference
-    * seems to fail for ops.record.Selector[Spec[Id]].
-    */
-  class QuadfocalsBuilder[Spec[_[_]], Exports[_[_]], R1 <: HList, R2 <: HList, R3 <: HList, R4 <: HList]
-    (implicit g1: MkLabelledGenericLens.Aux[Spec[Predicted], R1],
-     g2: MkLabelledGenericLens.Aux[Exports[Predicted], R2],
-     g3: MkLabelledGenericLens.Aux[Spec[Id], R3],
-     g4: MkLabelledGenericLens.Aux[Exports[Id], R4]) {
-      def apply[A](k: Witness)
-                (implicit l1: MkRecordSelectLens.Aux[R1, k.T, Predicted[A]],
-                 l2: MkRecordSelectLens.Aux[R2, k.T, Predicted[A]],
-                 l3: MkRecordSelectLens.Aux[R3, k.T, A],
-                 l4: MkRecordSelectLens.Aux[R4, k.T, A]
-                ): Quadfocals[Spec[Predicted], Exports[Predicted], Predicted[A], Spec[Id], Exports[Id], A] = {
-        Quadfocals(l1() compose g1(), l2() compose g2(), l3() compose g3(), l4() compose g4())
-      }
-    }
-
   /** Uses an implicit Context to infer the Spec and Exports types.
     */
-  private def field[Spec[_[_]], Exports[_[_]], R1 <: HList, R2 <: HList, R3 <: HList, R4 <: HList]
+  private def builder[Spec[_[_]], Exports[_[_]], R1 <: HList, R2 <: HList, R3 <: HList, R4 <: HList]
   (implicit ctx: Context[Spec, Exports],
    g1: MkLabelledGenericLens.Aux[Spec[Predicted], R1],
    g2: MkLabelledGenericLens.Aux[Exports[Predicted], R2],
