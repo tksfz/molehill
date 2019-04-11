@@ -40,9 +40,10 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
         x
       }
     } { case (preSpec: EC2Spec[Id], preExports: EC2Exports[Id]) =>
+      implicit val ctx = Context(preSpec, preExports)
       Free.liftF(
         ModifyBuilder(preSpec, preExports, targetSpec)
-          .withFieldSolver[String](field[EC2Spec, EC2Exports].apply.apply[Predicted[String], String]('instanceType)) { exports =>
+          .withFieldSolver(field.apply[String]('instanceType)) { exports =>
             Kleisli[PlanIO, (Ec2AsyncClient, EC2Spec[Id]), String] { case (ec2, targetSpec) =>
               PlanIO.fromCompletableFuture(ec2.modifyInstanceAttribute(
                 ModifyInstanceAttributeRequest.builder()
@@ -56,6 +57,8 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
       )
     }
   }
+
+  case class Context[Spec[_[_]], Exports[_[_]]](preSpec: Spec[Id], preExports: Exports[Id])
 
   /*
   // Below doesn't work due to https://github.com/milessabin/shapeless/issues/889
@@ -71,31 +74,31 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
   } */
 
   /** Simultaneously creates lenses for (Spec, Exports) X (Predicted, Id) for fields that they hold in common.
-    * Uses an implicit Context to infer the Spec and Exports types.
     * This implementation works around https://github.com/milessabin/shapeless/issues/889 where type inference
     * seems to fail for ops.record.Selector[Spec[Id]].
     */
-  class QuadfocalsBuilder[Spec[_[_]], Exports[_[_]]] {
-    def apply[R1 <: HList, R2 <: HList, R3 <: HList, R4 <: HList]
+  class QuadfocalsBuilder[Spec[_[_]], Exports[_[_]], R1 <: HList, R2 <: HList, R3 <: HList, R4 <: HList]
     (implicit g1: MkLabelledGenericLens.Aux[Spec[Predicted], R1],
      g2: MkLabelledGenericLens.Aux[Exports[Predicted], R2],
      g3: MkLabelledGenericLens.Aux[Spec[Id], R3],
-     g4: MkLabelledGenericLens.Aux[Exports[Id], R4]) = new {
-      def apply[A, B](k: Witness)
-                (implicit l1: MkRecordSelectLens.Aux[R1, k.T, A],
-                 l2: MkRecordSelectLens.Aux[R2, k.T, A],
-                 l3: MkRecordSelectLens.Aux[R3, k.T, B],
-                 l4: MkRecordSelectLens.Aux[R4, k.T, B]
-                ): Quadfocals[Spec[Predicted], Exports[Predicted], A, Spec[Id], Exports[Id], B] = {
+     g4: MkLabelledGenericLens.Aux[Exports[Id], R4]) {
+      def apply[A](k: Witness)
+                (implicit l1: MkRecordSelectLens.Aux[R1, k.T, Predicted[A]],
+                 l2: MkRecordSelectLens.Aux[R2, k.T, Predicted[A]],
+                 l3: MkRecordSelectLens.Aux[R3, k.T, A],
+                 l4: MkRecordSelectLens.Aux[R4, k.T, A]
+                ): Quadfocals[Spec[Predicted], Exports[Predicted], Predicted[A], Spec[Id], Exports[Id], A] = {
         Quadfocals(l1() compose g1(), l2() compose g2(), l3() compose g3(), l4() compose g4())
       }
     }
-  }
 
-  def field[Spec[_[_]], Exports[_[_]]]
-  (implicit g1: MkLabelledGenericLens[Spec[Predicted]],
-   g2: MkLabelledGenericLens[Exports[Predicted]],
-   g3: MkLabelledGenericLens[Spec[Id]],
-   g4: MkLabelledGenericLens[Exports[Id]]) = new QuadfocalsBuilder[Spec, Exports]
+  /** Uses an implicit Context to infer the Spec and Exports types.
+    */
+  private def field[Spec[_[_]], Exports[_[_]], R1 <: HList, R2 <: HList, R3 <: HList, R4 <: HList]
+  (implicit ctx: Context[Spec, Exports],
+   g1: MkLabelledGenericLens.Aux[Spec[Predicted], R1],
+   g2: MkLabelledGenericLens.Aux[Exports[Predicted], R2],
+   g3: MkLabelledGenericLens.Aux[Spec[Id], R3],
+   g4: MkLabelledGenericLens.Aux[Exports[Id], R4]) = new QuadfocalsBuilder[Spec, Exports, R1, R2, R3, R4]
 
 }
