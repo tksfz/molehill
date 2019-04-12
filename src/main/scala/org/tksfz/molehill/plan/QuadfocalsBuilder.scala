@@ -49,17 +49,6 @@ class QuadfocalsBuilder[Spec[_[_]], Exports[_[_]], R1 <: HList, R2 <: HList, R3 
       }
   }
 
-  def fields[A, B, C](k1: Witness, k2: Witness, k3: Witness)
-                        (implicit l: MkRecordSelectLens2x2[k1.T, A],
-                         l2: MkRecordSelectLens2x2[k1.T, B]): Focus[(A, B, C)] = {
-    (l._1 compose g1(), l2._1 compose g1())
-    new Lens[Spec[Predicted], (A, B, C)] {
-      override def get(s: Spec[Predicted]) = l._1.get(s)
-
-      override def set(s: Spec[Predicted])(a: (A, B, C)) = ???
-    }
-  }
-
   private def tupled[T, A, B](lens1: Lens[T, A], lens2: Lens[T, B]) = {
     new Lens[T, (A, B)] {
       override def get(s: T) = {
@@ -79,12 +68,12 @@ trait MkRecordSelectAllLens[R <: HList, KL <: HList] extends Serializable {
 }
 
 object MkRecordSelectAllLens {
-  type Aux[R <: HList, KL, Elem0] = MkRecordSelectAllLens[R, KL] { type Elem = Elem0 }
+  type Aux[R <: HList, KL <: HList, Elem0] = MkRecordSelectAllLens[R, KL] { type Elem = Elem0 }
 
-  implicit def mkRecordSelectLens[R <: HList, KL, E, U <: HList]
+  implicit def mkRecordSelectLens[R <: HList, KL <: HList, E <: HList, U <: HList]
   (implicit selector: shapeless.ops.record.SelectAll.Aux[R, KL, E],
    zipWithKeys: ZipWithKeys.Aux[KL, E, U],
-   updater: UpdateAll.Aux[R, U],
+   updater: UpdateAll.Aux[R, U, R],
   ): Aux[R, KL, E] =
     new MkRecordSelectAllLens[R, KL] {
       type Elem = E
@@ -96,25 +85,24 @@ object MkRecordSelectAllLens {
     }
 }
 
-trait UpdateAll[L <: HList, FL <: HList] extends DepFn2[L, FL] with Serializable { type Out <: HList }
+trait UpdateAll[L <: HList, FL <: HList] extends DepFn2[L, FL] with Serializable
 
-object updateAll extends Poly2 {
+object updateOne extends Poly2 {
   implicit def updateOne[L <: HList, F](implicit update: Updater[L, F]) = at[L, F]((l, f) => update(l, f))
 }
 
 object UpdateAll {
-  type Aux[L <: HList, FL <: HList] = UpdateAll[L, FL] { type Out = L }
+  type Aux[L <: HList, FL <: HList, Out0] = UpdateAll[L, FL] { type Out = Out0 }
 
-  implicit def instance[U <: HList, L <: HList](implicit l: LeftFolder.Aux[U, L, updateAll.type, L]) = new UpdateAll[L, U] {
-    override type Out = L
+  implicit def instance[L <: HList, U <: HList](implicit l: LeftFolder[U, L, updateOne.type]): Aux[L, U, l.Out] = new UpdateAll[L, U] {
+    override type Out = l.Out
 
     override def apply(t: L, u: U) = {
       l.apply(u, t)
     }
   }
 
-  def apply[L <: HList, FL <: HList](implicit updater: UpdateAll[L, F]): Aux[L, F, updater.Out] = updater
+  //def apply[L <: HList, FL <: HList](implicit updater: UpdateAll[L, F]): Aux[L, F, updater.Out] = updater
 
-  implicit def mkUpdater[L <: HList, F, O]: Aux[L, F, O] = macro UpdaterMacros.applyImpl[L, F]
 }
 
