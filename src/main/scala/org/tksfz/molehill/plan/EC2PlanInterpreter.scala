@@ -1,17 +1,13 @@
 package org.tksfz.molehill.plan
 
-import java.util.function.BiConsumer
-
 import cats.Id
 import cats.data.Kleisli
-import cats.effect.{Async, IO}
 import cats.effect.concurrent.Deferred
 import cats.free.Free
 import org.tksfz.molehill.algebra.{EC2Alg, EC2Exports, EC2Spec}
 import org.tksfz.molehill.aws.ec2.EC2Kleisli
-import org.tksfz.molehill.data.{Bifocals, External, ExternalDerived, Predicted, Quadfocals, QuadfocalsBuilder, SequencePredicted}
+import org.tksfz.molehill.data.{Bifocals, External, ExternalDerived, Predicted, SequencePredicted}
 import shapeless._
-import shapeless.ops.record.Selector
 import software.amazon.awssdk.services.ec2.Ec2AsyncClient
 import software.amazon.awssdk.services.ec2.model.{AttributeBooleanValue, AttributeValue, ModifyInstanceAttributeRequest, RunInstancesRequest, RunInstancesResponse}
 
