@@ -28,36 +28,14 @@ class QuadfocalsBuilder[Spec[_[_]], Exports[_[_]], R1 <: HList, R2 <: HList, R3 
     Quadfocals(l1() compose g1(), l2() compose g2(), l3() compose g3(), l4() compose g4())
   }
 
-  trait MkRecordSelectLens2x2[K, A] {
-    def _1: Lens[R1, Predicted[A]]
-    def _2: Lens[R2, Predicted[A]]
-    def _3: Lens[R3, A]
-    def _4: Lens[R4, A]
-  }
-
-  object MkRecordSelectLens2x2 {
-    implicit def instance[K, A](implicit l1: MkRecordSelectLens.Aux[R1, K, Predicted[A]],
-                                              l2: MkRecordSelectLens.Aux[R2, K, Predicted[A]],
-                                              l3: MkRecordSelectLens.Aux[R3, K, A],
-                                              l4: MkRecordSelectLens.Aux[R4, K, A]
-                                             ) =
-      new MkRecordSelectLens2x2[K, A] {
-        override def _1 = l1()
-        override def _2 = l2()
-        override def _3 = l3()
-        override def _4 = l4()
-      }
-  }
-
-  private def tupled[T, A, B](lens1: Lens[T, A], lens2: Lens[T, B]) = {
-    new Lens[T, (A, B)] {
-      override def get(s: T) = {
-        (lens1.get(s), lens2.get(s))
-      }
-
-      override def set(s: T)(a: (A, B)) = {
-        lens2.set(lens1.set(s)(a._1))(a._2)
-      }
+  def fields[KL <: HList] = new {
+    def fields2[AL <: HList, BL <: HList]
+    (implicit l1: MkRecordSelectAllLens.Aux[R1, KL, BL],
+     l2: MkRecordSelectAllLens.Aux[R2, KL, BL],
+     l3: MkRecordSelectAllLens.Aux[R3, KL, AL],
+     l4: MkRecordSelectAllLens.Aux[R4, KL, AL]
+    ): Quadfocals[Spec[Predicted], Exports[Predicted], BL, Spec[Id], Exports[Id], AL] = {
+      Quadfocals(l1() compose g1(), l2() compose g2(), l3() compose g3(), l4() compose g4())
     }
   }
 }

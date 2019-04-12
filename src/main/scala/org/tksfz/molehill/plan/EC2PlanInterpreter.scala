@@ -50,6 +50,10 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
                 }
             }
           }
+          .withField(builder.fields[HList.`'instanceType, 'disableApiTermination`.T].fields2) {
+            case instanceType :: disableApiTermination :: HNil =>
+              println(instanceType + disableApiTermination)
+          }
       )
     }
   }
