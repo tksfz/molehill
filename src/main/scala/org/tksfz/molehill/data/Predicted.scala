@@ -1,6 +1,6 @@
 package org.tksfz.molehill.data
 
-import cats.{Id, Monad}
+import cats.{Applicative, Id}
 import cats.effect.Async
 import cats.effect.concurrent.Deferred
 import cats.sequence.RecordSequencer
@@ -75,6 +75,22 @@ object SequencePredicted {
 }
 
 object Predicted {
+  implicit val applicative: Applicative[Predicted] = new Applicative[Predicted] {
+    override def pure[A](x: A) = Local(x)
+
+    override def ap[A, B](ff: Predicted[A => B])(fa: Predicted[A]): Predicted[B] = {
+      (ff, fa) match {
+        case (Local(f), Local(a)) => Local(f(a))
+        case (ff, fa) => ExternalDerived {
+          for {
+            f <- ff.toPlanIO
+            a <- fa.toPlanIO
+          } yield f(a)
+        }
+      }
+    }
+  }
+
   trait LowPriorityImplicits extends Poly1 {
     implicit def default[T] = at[T] { a => Async[PlanIO].pure(a) }
   }
