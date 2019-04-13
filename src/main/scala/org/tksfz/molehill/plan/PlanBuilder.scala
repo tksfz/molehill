@@ -41,6 +41,28 @@ trait PlanBuilder {
     // Lens composition should let us handle tuples just as easily
     type Focus[A, B] = Quadfocals[Spec[Predicted], Exports[Predicted], B, Spec[Id], Exports[Id], A]
 
+    class Boo[A] {
+      def apply[B](field: Focus[A, B])
+                         (mkConsistent: A => Kleisli[PlanIO, Ec2AsyncClient, A]): Modify[Spec, Exports] = {
+        if (isInconsistent(field.lens1.get, modify.preSpecLocal, modify.targetSpec)) {
+          modify.updated(field.copyFromTo(modify.targetSpec, _)) {
+            exports =>
+              Kleisli[PlanIO, (Ec2AsyncClient, Spec[Id]), Exports[Id]] { case (ec2, targetSpec) =>
+                val a = field.lens3.get(targetSpec)
+                mkConsistent(a).map { a =>
+                  field.lens4.set(exports)(a)
+                }.run(ec2)
+              }
+          }
+        } else {
+          modify
+        }
+      }
+
+    }
+
+    def withField2[A] = new Boo[A]
+
     def withField[A, B](field: Focus[A, B])
                           (mkConsistent: A => Kleisli[PlanIO, Ec2AsyncClient, A]): Modify[Spec, Exports] = {
       if (isInconsistent(field.lens1.get, modify.preSpecLocal, modify.targetSpec)) {

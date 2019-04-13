@@ -2,10 +2,9 @@ package org.tksfz.molehill.plan
 
 import cats.Id
 import org.tksfz.molehill.data.{Predicted, Quadfocals}
-import shapeless.labelled.{FieldType, field}
 import shapeless.ops.hlist.{LeftFolder, ZipWithKeys}
-import shapeless.ops.record.{Updater, UpdaterMacros}
-import shapeless.{DepFn2, HList, Lens, MkLabelledGenericLens, MkRecordSelectLens, Poly2, Witness}
+import shapeless.ops.record.Updater
+import shapeless.{DepFn2, HList, Lens, MkLabelledGenericLens, MkRecordSelectLens, Poly2, SingletonProductArgs, Witness}
 
 /** Simultaneously creates lenses for (Spec, Exports) X (Predicted, Id) for fields that they hold in common.
   * This implementation works around https://github.com/milessabin/shapeless/issues/889 where type inference
@@ -15,7 +14,7 @@ class QuadfocalsBuilder[Spec[_[_]], Exports[_[_]], R1 <: HList, R2 <: HList, R3 
 (implicit g1: MkLabelledGenericLens.Aux[Spec[Predicted], R1],
  g2: MkLabelledGenericLens.Aux[Exports[Predicted], R2],
  g3: MkLabelledGenericLens.Aux[Spec[Id], R3],
- g4: MkLabelledGenericLens.Aux[Exports[Id], R4]) {
+ g4: MkLabelledGenericLens.Aux[Exports[Id], R4]) extends SingletonProductArgs {
 
   type Focus[A] = Quadfocals[Spec[Predicted], Exports[Predicted], Predicted[A], Spec[Id], Exports[Id], A]
 
@@ -28,8 +27,30 @@ class QuadfocalsBuilder[Spec[_[_]], Exports[_[_]], R1 <: HList, R2 <: HList, R3 
     Quadfocals(l1() compose g1(), l2() compose g2(), l3() compose g3(), l4() compose g4())
   }
 
-  def fields[KL <: HList] = new {
-    def fields2[AL <: HList, BL <: HList]
+  class SelectHList[KL <: HList] {
+    def lenses[AL <: HList, BL <: HList]
+    (implicit l1: MkRecordSelectAllLens.Aux[R1, KL, BL],
+     l2: MkRecordSelectAllLens.Aux[R2, KL, BL],
+     l3: MkRecordSelectAllLens.Aux[R3, KL, AL],
+     l4: MkRecordSelectAllLens.Aux[R4, KL, AL]
+    ): Quadfocals[Spec[Predicted], Exports[Predicted], BL, Spec[Id], Exports[Id], AL] = {
+      Quadfocals(l1() compose g1(), l2() compose g2(), l3() compose g3(), l4() compose g4())
+    }
+
+    def fieldTypes[AL <: HList] = new SelectHListFieldTypes[AL, KL]
+  }
+
+  def hlist2Product[KL <: HList](kl: KL)
+   = new SelectHList[KL]
+
+  def hlistProduct[KL <: HList, AL <: HList, BL <: HList](kl: KL)(implicit l1: MkRecordSelectAllLens.Aux[R1, KL, BL],
+                                        l2: MkRecordSelectAllLens.Aux[R2, KL, BL],
+                                        l3: MkRecordSelectAllLens.Aux[R3, KL, AL],
+                                        l4: MkRecordSelectAllLens.Aux[R4, KL, AL]
+  ): Quadfocals[Spec[Predicted], Exports[Predicted], BL, Spec[Id], Exports[Id], AL] = Quadfocals(l1() compose g1(), l2() compose g2(), l3() compose g3(), l4() compose g4())
+
+  class SelectHListFieldTypes[AL <: HList, KL <: HList] {
+    def lenses[BL <: HList]
     (implicit l1: MkRecordSelectAllLens.Aux[R1, KL, BL],
      l2: MkRecordSelectAllLens.Aux[R2, KL, BL],
      l3: MkRecordSelectAllLens.Aux[R3, KL, AL],
@@ -38,6 +59,18 @@ class QuadfocalsBuilder[Spec[_[_]], Exports[_[_]], R1 <: HList, R2 <: HList, R3 
       Quadfocals(l1() compose g1(), l2() compose g2(), l3() compose g3(), l4() compose g4())
     }
   }
+
+  class SelectFieldTypes[AL <: HList] extends SingletonProductArgs {
+    def fieldsProduct[KL <: HList, BL <: HList](kl: KL)(implicit l1: MkRecordSelectAllLens.Aux[R1, KL, BL],
+                                                        l2: MkRecordSelectAllLens.Aux[R2, KL, BL],
+                                                        l3: MkRecordSelectAllLens.Aux[R3, KL, AL],
+                                                        l4: MkRecordSelectAllLens.Aux[R4, KL, AL]
+    ): Quadfocals[Spec[Predicted], Exports[Predicted], BL, Spec[Id], Exports[Id], AL] = {
+      Quadfocals(l1() compose g1(), l2() compose g2(), l3() compose g3(), l4() compose g4())
+    }
+  }
+
+  def fieldTypes[AL <: HList] = new SelectFieldTypes[AL]
 }
 
 trait MkRecordSelectAllLens[R <: HList, KL <: HList] extends Serializable {

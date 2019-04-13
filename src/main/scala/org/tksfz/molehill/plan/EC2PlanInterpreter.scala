@@ -36,9 +36,11 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
         x
       }
     } { case (preSpec: EC2Spec[Id], preExports: EC2Exports[Id]) =>
+      import shapeless.syntax.singleton._
       implicit val ctx = Context(preSpec, preExports)
       Free.liftF(
         Modify(preSpec, preExports, targetSpec)
+          /*
           .withField(builder.field[String]('instanceType)) { instanceType =>
             Kleisli[PlanIO, Ec2AsyncClient, String] { ec2 =>
               PlanIO.fromCompletableFuture(ec2.modifyInstanceAttribute(
@@ -49,9 +51,16 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
                   instanceType
                 }
             }
-          }
-          .withField(builder.fields[HList.`'instanceType, 'disableApiTermination`.T].fields2) {
+          } */
+          .withField(select.fieldTypes[String :: Boolean :: HNil].fields('instanceType, 'disableApiTermination)) {
+          case instanceType :: disableApiTermination :: HNil =>
+            instanceType.toLong
+            println(instanceType + disableApiTermination)
+            ???
+        }
+          .withField2[String :: Boolean :: HNil](select.hlist('instanceType, 'disableApiTermination)) {
             case instanceType :: disableApiTermination :: HNil =>
+              instanceType.toLong
               println(instanceType + disableApiTermination)
               ???
           }
@@ -76,7 +85,7 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
 
   /** Uses an implicit Context to infer the Spec and Exports types.
     */
-  private def builder[Spec[_[_]], Exports[_[_]], R1 <: HList, R2 <: HList, R3 <: HList, R4 <: HList]
+  private def select[Spec[_[_]], Exports[_[_]], R1 <: HList, R2 <: HList, R3 <: HList, R4 <: HList]
   (implicit ctx: Context[Spec, Exports],
    g1: MkLabelledGenericLens.Aux[Spec[Predicted], R1],
    g2: MkLabelledGenericLens.Aux[Exports[Predicted], R2],
