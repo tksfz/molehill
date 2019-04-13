@@ -59,22 +59,3 @@ object Quadfocals {
     new Quadfocals[C1, C2, A, D1, D2, B](OpticDefns.apply[C1] >> k, OpticDefns.apply[C2] >> k, OpticDefns.apply[D1] >> k, OpticDefns.apply[D2] >> k)
 }
 
-/** Simultaneously creates lenses for (Spec, Exports) X (Predicted, Id) for fields that they hold in common.
-  * This implementation works around https://github.com/milessabin/shapeless/issues/889 where type inference
-  * seems to fail for ops.record.Selector[Spec[Id]].
-  */
-class QuadfocalsBuilder[Spec[_[_]], Exports[_[_]], R1 <: HList, R2 <: HList, R3 <: HList, R4 <: HList]
-(implicit g1: MkLabelledGenericLens.Aux[Spec[Predicted], R1],
- g2: MkLabelledGenericLens.Aux[Exports[Predicted], R2],
- g3: MkLabelledGenericLens.Aux[Spec[Id], R3],
- g4: MkLabelledGenericLens.Aux[Exports[Id], R4]) {
-  def field[A](k: Witness)
-              (implicit l1: MkRecordSelectLens.Aux[R1, k.T, Predicted[A]],
-               l2: MkRecordSelectLens.Aux[R2, k.T, Predicted[A]],
-               l3: MkRecordSelectLens.Aux[R3, k.T, A],
-               l4: MkRecordSelectLens.Aux[R4, k.T, A]
-              ): Quadfocals[Spec[Predicted], Exports[Predicted], Predicted[A], Spec[Id], Exports[Id], A] = {
-    Quadfocals(l1() compose g1(), l2() compose g2(), l3() compose g3(), l4() compose g4())
-  }
-}
-
