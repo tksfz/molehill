@@ -6,8 +6,8 @@ import cats.effect.concurrent.Deferred
 import cats.sequence.RecordSequencer
 import org.tksfz.molehill.data.Predicted.toPlanIO
 import org.tksfz.molehill.plan.PlanIO
-import shapeless.ops.hlist.Align
-import shapeless.{HList, LabelledGeneric, Poly1, ops, record}
+import shapeless.ops.hlist.{Align, Mapper}
+import shapeless.{Generic, HList, LabelledGeneric, Poly1, ops, record}
 
 /**
   * Holds a predicted value, which may be known completely (in the Local case), or not known entirely but assumed to
@@ -129,5 +129,39 @@ object Predicted {
     val l = gen.to(t)
     val planIO: PlanIO[N] = sequence(l.mapValues(toPlanIO))
     planIO.map(align).map(rgen.from)
+  }
+}
+
+/** Converts a Spec or Exports from Exports[Id] => Exports[Predicted] by wrapping each
+  * member in a [[Local]].
+  *
+  * Since there could be custom implementation, we define our own type class rather than
+  * re-using an existing one.
+  *
+  * We also don't make this higher-kinded e.g. trait ToPredicted[Spec[_[_]] again to support
+  * custom implementations in the future for non-higher-kinded types.
+  */
+trait ToPredicted[A] {
+  type Out
+  def apply(t: A): Out
+}
+
+object ToPredicted {
+  object toPredicted extends Poly1 {
+    implicit def main[T]: Case.Aux[T, Predicted[T]] = at[T].apply { t => Local(t) }
+  }
+
+  type Aux[A, B] = ToPredicted[A] { type Out = B }
+
+  implicit def product[T[_[_]], L <: HList, M <: HList]
+  (implicit gen: Generic.Aux[T[Id], L],
+   mapper: Mapper.Aux[toPredicted.type, L, M],
+   mgen: Generic.Aux[T[Predicted], M],
+  ): Aux[T[Id], T[Predicted]] = new ToPredicted[T[Id]] {
+    override type Out = T[Predicted]
+
+    override def apply(t: T[Id]): T[Predicted] = {
+      mgen.from(mapper(gen.to(t)))
+    }
   }
 }
