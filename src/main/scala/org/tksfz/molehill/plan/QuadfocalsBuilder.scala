@@ -27,50 +27,12 @@ class QuadfocalsBuilder[Spec[_[_]], Exports[_[_]], R1 <: HList, R2 <: HList, R3 
     Quadfocals(l1() compose g1(), l2() compose g2(), l3() compose g3(), l4() compose g4())
   }
 
-  class SelectHList[KL <: HList] {
-    def lenses[AL <: HList, BL <: HList]
-    (implicit l1: MkRecordSelectAllLens.Aux[R1, KL, BL],
-     l2: MkRecordSelectAllLens.Aux[R2, KL, BL],
-     l3: MkRecordSelectAllLens.Aux[R3, KL, AL],
-     l4: MkRecordSelectAllLens.Aux[R4, KL, AL]
-    ): Quadfocals[Spec[Predicted], Exports[Predicted], BL, Spec[Id], Exports[Id], AL] = {
-      Quadfocals(l1() compose g1(), l2() compose g2(), l3() compose g3(), l4() compose g4())
-    }
-
-    def fieldTypes[AL <: HList] = new SelectHListFieldTypes[AL, KL]
-  }
-
-  def hlist2Product[KL <: HList](kl: KL)
-   = new SelectHList[KL]
-
   def hlistProduct[KL <: HList, AL <: HList, BL <: HList](kl: KL)(implicit l1: MkRecordSelectAllLens.Aux[R1, KL, BL],
                                         l2: MkRecordSelectAllLens.Aux[R2, KL, BL],
                                         l3: MkRecordSelectAllLens.Aux[R3, KL, AL],
                                         l4: MkRecordSelectAllLens.Aux[R4, KL, AL]
   ): Quadfocals[Spec[Predicted], Exports[Predicted], BL, Spec[Id], Exports[Id], AL] = Quadfocals(l1() compose g1(), l2() compose g2(), l3() compose g3(), l4() compose g4())
 
-  class SelectHListFieldTypes[AL <: HList, KL <: HList] {
-    def lenses[BL <: HList]
-    (implicit l1: MkRecordSelectAllLens.Aux[R1, KL, BL],
-     l2: MkRecordSelectAllLens.Aux[R2, KL, BL],
-     l3: MkRecordSelectAllLens.Aux[R3, KL, AL],
-     l4: MkRecordSelectAllLens.Aux[R4, KL, AL]
-    ): Quadfocals[Spec[Predicted], Exports[Predicted], BL, Spec[Id], Exports[Id], AL] = {
-      Quadfocals(l1() compose g1(), l2() compose g2(), l3() compose g3(), l4() compose g4())
-    }
-  }
-
-  class SelectFieldTypes[AL <: HList] extends SingletonProductArgs {
-    def fieldsProduct[KL <: HList, BL <: HList](kl: KL)(implicit l1: MkRecordSelectAllLens.Aux[R1, KL, BL],
-                                                        l2: MkRecordSelectAllLens.Aux[R2, KL, BL],
-                                                        l3: MkRecordSelectAllLens.Aux[R3, KL, AL],
-                                                        l4: MkRecordSelectAllLens.Aux[R4, KL, AL]
-    ): Quadfocals[Spec[Predicted], Exports[Predicted], BL, Spec[Id], Exports[Id], AL] = {
-      Quadfocals(l1() compose g1(), l2() compose g2(), l3() compose g3(), l4() compose g4())
-    }
-  }
-
-  def fieldTypes[AL <: HList] = new SelectFieldTypes[AL]
 }
 
 trait MkRecordSelectAllLens[R <: HList, KL <: HList] extends Serializable {
