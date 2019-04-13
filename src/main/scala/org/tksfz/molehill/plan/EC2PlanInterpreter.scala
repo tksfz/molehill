@@ -40,23 +40,20 @@ class EC2PlanInterpreter(preStore: Map[String, Any]) extends EC2Alg[PlanIO, Pred
       implicit val ctx = Context(preSpec, preExports)
       Free.liftF(
         Modify(preSpec, preExports, targetSpec)
-          /*
-          .withField(builder.field[String]('instanceType)) { instanceType =>
-            Kleisli[PlanIO, Ec2AsyncClient, String] { ec2 =>
-              PlanIO.fromCompletableFuture(ec2.modifyInstanceAttribute(
-                ModifyInstanceAttributeRequest.builder()
-                  .instanceType(AttributeValue.builder().value(instanceType).build())
-                  .build()))
-                .map { _ =>
-                  instanceType
-                }
-            }
-          } */
           .withFieldTypes[String :: Boolean :: HNil](select.hlist('instanceType, 'disableApiTermination)) {
             case instanceType :: disableApiTermination :: HNil =>
-              instanceType.toLong
               println(instanceType + disableApiTermination)
-              ???
+              Kleisli[PlanIO, Ec2AsyncClient, String :: Boolean :: HNil] { ec2 =>
+                PlanIO.fromCompletableFuture(ec2.modifyInstanceAttribute(
+                  ModifyInstanceAttributeRequest.builder()
+                    .instanceId(preExports.instanceId)
+                    .instanceType(AttributeValue.builder().value(instanceType).build())
+                    .disableApiTermination(AttributeBooleanValue.builder().value(disableApiTermination).build())
+                    .build()))
+                  .map { _ =>
+                    instanceType :: disableApiTermination :: HNil
+                  }
+              }
           }
       )
     }
